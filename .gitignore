@@ -1,0 +1,44 @@
+# Docs
+docs/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+*.egg
+MANIFEST
+
+# Distribution / packaging
+.Python
+.pdm-build/
+.pdm.toml
+.pdm.lock
+pdm.lock
+pdm.pyproject
+
+# Pytest
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Documentation
+docs/_build/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IDE / Editor specific
+.idea/
+.vscode/
+*.swp
+*~
