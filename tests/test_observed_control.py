@@ -35,7 +35,7 @@ def test_lqr_convergence():
         max_horizon=20,
         adaptive_tolerances_trace_p=1e-3,
         adaptive_tolerances_gamma=1e-3,
-        process_noise=0.01 * np.eye(1),
+        delta_control_penalty=100 * np.eye(1),
     )
 
     initial_state = np.array([10.0])
