@@ -34,7 +34,7 @@ To get started, clone the repository and install the necessary dependencies in a
 
 ```bash
 # 1. Clone the repository
-git clone <your-repository-url>
+git clone git@github.com:M3R-CSM/observed_control.git
 cd observed_control
 
 # 2. Create and activate a virtual environment
