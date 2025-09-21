@@ -30,6 +30,7 @@ dev = [
     "pytest",
     "pytest-mock",
     "matplotlib",
+    "myst-parser",
 ]
 
 # This section tells the build system to look inside the 'src' directory

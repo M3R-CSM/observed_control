@@ -2,6 +2,7 @@
 
 import os
 import sys
+
 sys.path.insert(0, os.path.abspath('..'))
 
 # -- General configuration ---------------------------------------------------
@@ -12,13 +13,14 @@ extensions = [
     'sphinx.ext.autosummary',
     'sphinx.ext.viewcode',
     'sphinx.ext.todo',
-#    'sphinx-autobuild',
-#    'sphinx-copybutton',
-#    'sphinx-gallery',
-#    'sphinx-design',
-#    'sphinx-sitemap',
-#    'sphinx-reredirects',
     'sphinx.ext.doctest',
+    'myst_parser',
+    #    'sphinx-autobuild',
+    #    'sphinx-copybutton',
+    #    'sphinx-gallery',
+    #    'sphinx-design',
+    #    'sphinx-sitemap',
+    #    'sphinx-reredirects',
 ]
 
 # Set the theme via the html_theme variable

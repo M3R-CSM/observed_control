@@ -57,7 +57,7 @@ def main():
         max_horizon=500,
         adaptive_tolerances_trace_p=1e-3,
         adaptive_tolerances_gamma=1e-3,
-        process_noise=1 * np.eye(n_u),
+        delta_control_penalty=1 * np.eye(n_u),
     )
 
     # 4. Set up and Run the Simulation

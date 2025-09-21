@@ -5,9 +5,11 @@
 
 Observed Control documentation
 ==============================
+.. include:: ../README.md
+   :parser: myst_parser.sphinx_
 
 .. toctree::
    :maxdepth: 2
-   :caption: Contents:
+   :caption: API Reference
 
    _automodules/modules
