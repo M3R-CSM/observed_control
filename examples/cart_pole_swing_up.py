@@ -1,5 +1,7 @@
 # examples/cart_pole_swing_up.py
 import numpy as np
+
+import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 from matplotlib.patches import Rectangle, Circle
@@ -9,6 +11,8 @@ from matplotlib.widgets import Button
 from systems.cart_pole_system import CartPoleSystem
 from core.observed_control import ObservedControl
 from conditions.quadratic_cost import QuadraticCost
+
+matplotlib.use("Qt5Agg")
 
 
 def animate_cart_pole(time_history, state_history, l):
@@ -93,7 +97,7 @@ def animate_cart_pole(time_history, state_history, l):
         return frame_artists + [time_text]
 
     anim = FuncAnimation(fig, animate, frames=len(time_history),
-                         init_func=init, blit=False, interval=dt*1000,
+                         init_func=init, blit=False, interval=dt * 1000,
                          repeat=True)
 
     def reset_animation(event):
@@ -167,7 +171,8 @@ def main():
             initial_state=x_current,
             initial_control=current_control
         )
-        print(f"sim time: {i*dt:.3f}", f"\tcompute_time: {info['compute_time']*1000:.1f}ms", f"\thorizon_len: {info['final_horizon']:d}")
+        print(f"sim time: {i * dt:.3f}", f"\tcompute_time: {info['compute_time'] * 1000:.1f}ms",
+              f"\thorizon_len: {info['final_horizon']:d}")
         x_next, _, _ = dynamic_system.solve(t_init=i * dt, t_final=(i + 1) * dt, x_init=x_current, u=optimal_control)
 
         state_history.append(x_next)

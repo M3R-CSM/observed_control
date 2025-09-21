@@ -19,17 +19,18 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    "numpy",
-    "scipy",
-    "autograd",
-    "numba",
+    "numpy", # for linear algebra
+    "scipy", # for numerical integration
+    "autograd", # for autodifferentiation
+    "numba", # for just in time compilation
+    "pyqt5", # to plot examples
+    "matplotlib", # to plot examples
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest",
     "pytest-mock",
-    "matplotlib",
     "myst-parser",
 ]
 

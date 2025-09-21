@@ -1,10 +1,16 @@
 # examples/msd_control_simulation.py
 import autograd.numpy as np
+
+import matplotlib
 import matplotlib.pyplot as plt
 
 from systems.linear_system import LinearSystem
 from core.anticipated_condition import AnticipatedCondition
 from core.observed_control import ObservedControl
+from conditions.quadratic_cost import QuadraticCost
+
+matplotlib.use("Qt5Agg")
+
 
 def main():
     """
@@ -25,27 +31,37 @@ def main():
     # 2. Define the Anticipated Condition (Quadratic Cost)
     # ----------------------------------------------------
     # Define the target state [position=1, velocity=0]
+    step_time = 3
     x_target = np.array([1.0, 0.0])
 
     # Define weighting matrices for state error (Q) and control effort (R)
     Q = np.diag([1.0, .1])  # Penalize position error more than velocity
-    R = 0*np.diag([0.1])       # Penalize control effort
+    R = 0 * np.diag([0.1])  # Penalize control effort
 
-    def quadratic_cost(t, x, u):
-        """Calculates the quadratic cost."""
-        if t>1:
-            error = x - x_target
+    def target(t):
+        if t> step_time:
+            return x_target, np.zeros(1)
         else:
-            error = x
-        # error = x - x_target
-        state_cost = (error.T @ Q @ error)
-        control_cost = u.T @ R @ u
-        return state_cost + control_cost
+            return np.zeros(2), np.zeros(1)
 
-    # Instantiate the cost function object
-    anticipated_condition = AnticipatedCondition(
-        n_x=n_x, n_u=n_u, value_func=quadratic_cost
-    )
+    anticipated_condition = QuadraticCost(target_function=target, Q=Q, R=R)
+
+    # autodifferentiation version
+    # def quadratic_cost(t, x, u):
+    #     """Calculates the quadratic cost."""
+    #     if t > step_time:
+    #         error = x - x_target
+    #     else:
+    #         error = x
+    #     # error = x - x_target
+    #     state_cost = (error.T @ Q @ error)
+    #     control_cost = u.T @ R @ u
+    #     return state_cost + control_cost
+    #
+    # # Instantiate the cost function object
+    # anticipated_condition = AnticipatedCondition(
+    #     n_x=n_x, n_u=n_u, value_func=quadratic_cost
+    # )
 
     # 3. Configure and Instantiate the Observed Controller
     # ----------------------------------------------------
@@ -62,7 +78,7 @@ def main():
 
     # 4. Set up and Run the Simulation
     # ---------------------------------
-    sim_time = 5.0  # Total simulation time
+    sim_time = step_time + 4  # Total simulation time
     dt = oc_controller.expected_update_period
     num_steps = int(sim_time / dt)
 
@@ -79,14 +95,15 @@ def main():
     print("Running simulation...")
     sim_time = 0
     for i in range(num_steps):
-
         # Compute the optimal control action
         # The initial control guess is always 0 for this example
-        optimal_control, diagnostics = oc_controller.control_law(sim_time, x_current, current_control)
-        print("diagostics:\n", diagnostics )
+        optimal_control, info = oc_controller.control_law(sim_time, x_current, current_control)
+        print(f"sim time: {i * dt:.3f}", f"\tcompute_time: {info['compute_time'] * 1000:.1f}ms",
+              f"\thorizon_len: {info['final_horizon']:d}")
+
         # Apply the control to the system to get the next state
         x_next, _, _ = dynamic_system.solve(
-            t_init=sim_time, t_final=sim_time+dt, x_init=x_current, u=optimal_control
+            t_init=sim_time, t_final=sim_time + dt, x_init=x_current, u=optimal_control
         )
         # print("x_next: ", x_next.T)
 
@@ -128,6 +145,7 @@ def main():
 
     plt.tight_layout(rect=[0, 0, 1, 0.96])
     plt.show()
+
 
 if __name__ == "__main__":
     main()
