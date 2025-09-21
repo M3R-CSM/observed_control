@@ -1,3 +1,8 @@
+# Copyright (c) 2025 Andrew Petruska
+#
+# This software is released under the MIT License.
+# https://opensource.org/licenses/MIT
+
 # src/core/observed_control.py
 from typing import List, Tuple
 

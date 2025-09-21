@@ -1,3 +1,8 @@
+# Copyright (c) 2025 Andrew Petruska
+#
+# This software is released under the MIT License.
+# https://opensource.org/licenses/MIT
+
 # tests/test_observed_control.py
 import pytest
 import autograd.numpy as np

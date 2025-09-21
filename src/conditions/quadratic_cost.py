@@ -1,4 +1,10 @@
-# core/quadratic_cost.py
+# Copyright (c) 2025 Andrew Petruska
+#
+# This software is released under the MIT License.
+# https://opensource.org/licenses/MIT
+
+# conditions/quadratic_cost.py
+
 """Defines a quadratic cost function for optimal control problems."""
 
 from typing import Callable, Tuple

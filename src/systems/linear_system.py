@@ -1,3 +1,8 @@
+# Copyright (c) 2025 Andrew Petruska
+#
+# This software is released under the MIT License.
+# https://opensource.org/licenses/MIT
+
 # core/linear_system.py
 from typing import Tuple
 
