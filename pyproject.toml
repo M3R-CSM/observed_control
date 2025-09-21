@@ -22,6 +22,7 @@ dependencies = [
     "numpy",
     "scipy",
     "autograd",
+    "numba",
 ]
 
 [project.optional-dependencies]

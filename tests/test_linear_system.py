@@ -22,13 +22,13 @@ def test_linear_solver_against_numerical_solver(msd_matrices):
     numerical_system = DynamicSystem(n_x=2, n_u=1, ode_func=lambda t, x, u: A @ x + B @ u)
 
     t_init, t_final = 0.0, 0.5
-    x_init = np.array([1.0, 0.0])
+    x_init = np.array([1.0, 0.5])
     u = np.array([0.5])
 
     x_final_analytical, _, _ = linear_system.solve(t_init, t_final, x_init, u)
     x_final_numerical, _, _ = numerical_system.solve(t_init, t_final, x_init, u)
 
-    assert np.allclose(x_final_analytical, x_final_numerical, atol=1e-6)
+    assert np.allclose(x_final_analytical, x_final_numerical, atol=1e-9)
 
 def test_linear_system_caching_logic(msd_matrices, mocker):
     """

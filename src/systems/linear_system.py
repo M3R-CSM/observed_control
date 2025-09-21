@@ -54,6 +54,10 @@ class LinearSystem(DynamicSystemBase):
         """
         return self.A @ x + self.B @ u
 
+    def _get_jacobians(self, t: float, x: np.ndarray, u: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        return self.A, self.B
+
+
     def solve(self, t_init: float, t_final: float, x_init: np.ndarray, u: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Solves the LTI system dynamics using the matrix exponential.
 

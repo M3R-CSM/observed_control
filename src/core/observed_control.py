@@ -2,9 +2,9 @@
 from typing import List, Tuple
 
 import numpy as np
+import time
 from core.dynamic_system import DynamicSystemBase
 from core.anticipated_condition import AnticipatedConditionBase
-
 
 class ObservedControl:
     """Implements the Observed Control algorithm for NMPC.
@@ -23,7 +23,7 @@ class ObservedControl:
             max_horizon: int,
             adaptive_tolerances_trace_p: float,
             adaptive_tolerances_gamma: float,
-            process_noise: np.ndarray,
+            delta_control_penalty: np.ndarray,
     ):
         """Initializes the Observed Control instance."""
         self.dynamic_system = dynamic_system
@@ -33,7 +33,7 @@ class ObservedControl:
         self.max_horizon = max_horizon
         self.tol_trace_p = adaptive_tolerances_trace_p
         self.tol_gamma = adaptive_tolerances_gamma
-        self.process_noise = process_noise
+        self.process_noise = np.linalg.inv(delta_control_penalty)
 
         self.n_x = dynamic_system.n_x
         self.n_u = dynamic_system.n_u
@@ -56,16 +56,19 @@ class ObservedControl:
                   outputs like cost, final horizon length, and termination
                   condition values, useful for analysis and debugging.
         """
+        start_time = time.perf_counter()
+
         augmented_state = np.concatenate([initial_state, initial_control])
         covariance_matrix = np.block([
             [np.zeros((self.n_x, self.n_x)), np.zeros((self.n_x, self.n_u))],
             [np.zeros((self.n_u, self.n_x)), self.process_noise],
         ])
 
-        accumulator = np.block([np.zeros((self.n_u, self.n_x)), np.eye(self.n_u)])
-        final_control = initial_control
+        phi = np.eye(self.n_chi)
+        accumulator = np.block([np.zeros((self.n_u, self.n_x)), self.process_noise])
+        final_control = initial_control.copy()
         tr_init_cov = np.trace(covariance_matrix)
-        horizon_time = current_time  # Initialize the horizon time
+        horizon_time = current_time
         total_cost = 0
 
         for k in range(self.max_horizon):
@@ -74,52 +77,46 @@ class ObservedControl:
                 augmented_state, covariance_matrix, phi = self._predict_step(
                     horizon_time, augmented_state, covariance_matrix
                 )
-            else:
-                phi = np.eye(self.n_chi)
 
             # Update step
             r_k, R_k, H_k, state_cost = self._compute_residuals_and_gains(horizon_time, augmented_state)
             total_cost += state_cost
 
             innovation_cov = H_k @ covariance_matrix @ H_k.T + R_k
-            try:
-                # Attempt to use the faster, standard inverse first
-                ht_innov_cov_inv = H_k.T @np.linalg.inv(innovation_cov)
-            except np.linalg.LinAlgError:
-                # If the matrix is singular or not square, fall back to the pseudo-inverse
-                ht_innov_cov_inv = H_k.T @ np.linalg.pinv(innovation_cov)
+            ht_innov_cov_inv = H_k.T @ np.linalg.pinv(innovation_cov)
 
             kalman_gain = covariance_matrix @ ht_innov_cov_inv
             augmented_state += kalman_gain @ r_k
 
-            cl_system = (np.eye(self.n_chi) - kalman_gain @ H_k)
-            covariance_matrix = cl_system @ covariance_matrix
+            cl_system_t = (np.eye(self.n_chi) - kalman_gain @ H_k).T
+            covariance_matrix @= cl_system_t
 
             # Accumulator and adaptive horizon update
-            accumulator = accumulator @ phi.T
+            accumulator @= phi.T
             g_phi_s = accumulator @ ht_innov_cov_inv
             final_control += g_phi_s @ r_k
 
             dp = np.trace(g_phi_s @ H_k @ accumulator.T)
             tr_init_cov -= dp
-            trace_p_term_cond = dp / tr_init_cov # if tr_init_cov > 1e-9 else 0.0
+            trace_p_term_cond = dp / tr_init_cov  # if tr_init_cov > 1e-9 else 0.0
             gamma_term_cond = np.linalg.norm(g_phi_s, 'fro')
 
             if k >= self.min_horizon and (trace_p_term_cond < self.tol_trace_p and gamma_term_cond < self.tol_gamma):
                 break
 
-            accumulator = accumulator @ cl_system.T
+            accumulator @= cl_system_t
             horizon_time += self.expected_update_period
 
-            diagnostics = {
-                'horizon cost': total_cost,
-                'final_horizon': k,
-                'final_trace_p': tr_init_cov,
-                'trace_p_term_cond': trace_p_term_cond,
-                'gamma_term_cond': gamma_term_cond
-            }
+        end_time = time.perf_counter()
+        diagnostics = {
+            'horizon cost': total_cost,
+            'final_horizon': k,
+            'final_trace_p': tr_init_cov,
+            'trace_p_term_cond': trace_p_term_cond,
+            'gamma_term_cond': gamma_term_cond,
+            'compute_time': end_time-start_time
+        }
         return final_control, diagnostics
-
 
     def _predict_step(self, t: float, aug_state: np.ndarray, cov: np.ndarray) -> Tuple[
         np.ndarray, np.ndarray, np.ndarray]:
@@ -128,18 +125,18 @@ class ObservedControl:
         u_k = aug_state[self.n_x:]
 
         x_k_plus_1, phi_x, phi_u = self.dynamic_system.solve(
-            t, t + self.expected_update_period, x_k, u_k
+            t, t + self.expected_update_period, x_k.flatten(), u_k.flatten()
         )
 
-        aug_state_k_plus_1 = np.concatenate([x_k_plus_1, u_k])
+        aug_state_k_plus_1 = np.concatenate([x_k_plus_1, u_k.flatten()])
         phi = np.block([[phi_x, phi_u], [np.zeros((self.n_u, self.n_x)), np.eye(self.n_u)]])
         cov_k_plus_1 = phi @ cov @ phi.T
-        cov_k_plus_1[self.n_x:,self.n_x:] += self.process_noise
+        cov_k_plus_1[self.n_x:, self.n_x:] += self.process_noise
 
         return aug_state_k_plus_1, cov_k_plus_1, phi
 
     def _compute_residuals_and_gains(self, t: float, aug_state: np.ndarray) -> Tuple[
-        np.ndarray, np.ndarray, np.ndarray]:
+        np.ndarray, np.ndarray, np.ndarray, float]:
         """Computes measurement residuals and gains from anticipated conditions."""
         x_k = aug_state[:self.n_x]
         u_k = aug_state[self.n_x:]
@@ -148,20 +145,19 @@ class ObservedControl:
         total_residual = np.zeros(self.n_chi)
 
         # The cost is evaluated at the *end* of the time step
-        t_plus_1 = t + self.expected_update_period
-        total_cost = 0
+        total_cost = 0.0
 
         for magnitude, condition in self.anticipated_conditions:
-            cond_cost = condition.value(t_plus_1, x_k, u_k)
-            cond_hess = condition.hessian(t_plus_1, x_k, u_k)
-            cond_res = condition.sensitivity(t_plus_1, x_k, u_k)
+            cond_cost = condition.value(t, x_k, u_k)
+            cond_hess = condition.hessian(t, x_k, u_k)
+            cond_res = condition.sensitivity(t, x_k, u_k)
 
             total_hessian += magnitude * cond_hess
             total_residual += magnitude * cond_res
-            total_cost += magnitude*cond_cost
+            total_cost += magnitude * cond_cost
 
         R_k = np.linalg.pinv(total_hessian)
-        H_k = R_k*total_hessian# np.eye(self.n_chi)  # Observation model is identity
+        H_k = R_k * total_hessian  # np.eye(self.n_chi)  # Observation model is identity
         r_k = -R_k @ total_residual
 
         return r_k, R_k, H_k, total_cost

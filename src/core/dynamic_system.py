@@ -4,7 +4,7 @@ from typing import Callable, Tuple
 
 import autograd.numpy as np
 from autograd import jacobian
-from scipy.integrate import odeint
+from scipy.integrate import solve_ivp
 
 class DynamicSystemBase(abc.ABC):
     """Abstract base class for dynamic systems.
@@ -14,49 +14,27 @@ class DynamicSystemBase(abc.ABC):
     """
 
     def __init__(self, n_x: int, n_u: int):
-        """Initializes the dynamic system.
-
-        Args:
-            n_x: The number of states in the system.
-            n_u: The number of control inputs in the system.
-        """
+        """Initializes the dynamic system."""
         self.n_x = n_x
         self.n_u = n_u
-
-        # Autograd jacobians for the ODE function
-        self._jac_x = jacobian(self.ode, 1)
-        self._jac_u = jacobian(self.ode, 2)
+        # Store autograd functions as a fallback
+        self._autograd_jac_x = jacobian(self.ode, 1)
+        self._autograd_jac_u = jacobian(self.ode, 2)
 
     @abc.abstractmethod
     def ode(self, t: float, x: np.ndarray, u: np.ndarray) -> np.ndarray:
-        """The ordinary differential equation defining the system dynamics.
-
-        Args:
-            t: The current time.
-            x: The state vector.
-            u: The control vector.
-
-        Returns:
-            The derivative of the state vector.
-        """
+        """The ordinary differential equation defining the system dynamics."""
         raise NotImplementedError
 
-    def _augmented_ode(self, aug_state: np.ndarray, t: float, u: np.ndarray) -> np.ndarray:
-        """The augmented ODE including state and sensitivity dynamics.
-
-        This private method is used by the `solve` method to integrate the
-        state and its sensitivities (Jacobians) simultaneously.
-
-        Args:
-            aug_state: The augmented state vector, containing the system state,
-                       the state sensitivity matrix (Phi_x), and the control
-                       sensitivity matrix (Phi_u).
-            t: The current time.
-            u: The control vector.
-
-        Returns:
-            The derivative of the augmented state vector.
+    def _get_jacobians(self, t: float, x: np.ndarray, u: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """
+        Computes the Jacobians of the ODE. This default implementation uses
+        autograd. Subclasses can override this for analytical Jacobians.
+        """
+        return self._autograd_jac_x(t, x, u), self._autograd_jac_u(t, x, u)
+
+    def _augmented_ode(self, t: float, aug_state: np.ndarray, u: np.ndarray) -> np.ndarray:
+        """The augmented ODE including state and sensitivity dynamics."""
         # Unpack the augmented state
         x = aug_state[:self.n_x]
         phi_x = aug_state[self.n_x:self.n_x + self.n_x * self.n_x].reshape((self.n_x, self.n_x))
@@ -64,8 +42,7 @@ class DynamicSystemBase(abc.ABC):
 
         # Compute the ODE and its Jacobians
         ode_val = self.ode(t, x, u)
-        ode_jac_x = self._jac_x(t, x, u)
-        ode_jac_u = self._jac_u(t, x, u)
+        ode_jac_x, ode_jac_u = self._get_jacobians(t, x, u)
 
         # Sensitivity dynamics
         d_phi_x_dt = ode_jac_x @ phi_x
@@ -78,20 +55,7 @@ class DynamicSystemBase(abc.ABC):
         ])
 
     def solve(self, t_init: float, t_final: float, x_init: np.ndarray, u: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Solves the ODE and computes sensitivities over a time interval.
-
-        Args:
-            t_init: The initial time.
-            t_final: The final time.
-            x_init: The initial state vector.
-            u: The control vector, assumed constant over the interval.
-
-        Returns:
-            A tuple containing:
-                - The final state vector.
-                - The state sensitivity matrix (Phi_x).
-                - The control sensitivity matrix (Phi_u).
-        """
+        """Solves the ODE and computes sensitivities over a time interval."""
         # Initial augmented state
         phi_x_init = np.eye(self.n_x)
         phi_u_init = np.zeros((self.n_x, self.n_u))
@@ -102,9 +66,11 @@ class DynamicSystemBase(abc.ABC):
         ])
 
         # Solve the augmented ODE
-        sol = odeint(self._augmented_ode, aug_x_init, [t_init, t_final], args=(u,))
-        final_aug_state = sol[-1]
-
+        sol = solve_ivp(self._augmented_ode, (t_init, t_final), aug_x_init, args=(u,),rtol=1e-6,atol=1e-9)
+        final_aug_state = sol.y[:,-1]
+        # print(sol)
+        # print(final_aug_state)
+        assert(sol.success)
         # Unpack the final solution
         x_final = final_aug_state[:self.n_x]
         phi_x_final = final_aug_state[self.n_x:self.n_x + self.n_x * self.n_x].reshape((self.n_x, self.n_x))
@@ -113,29 +79,13 @@ class DynamicSystemBase(abc.ABC):
         return x_final, phi_x_final, phi_u_final
 
 class DynamicSystem(DynamicSystemBase):
-    """A concrete implementation of a dynamic system.
-
-    This class can be used in two ways:
-    1.  By passing an `ode_func` to the constructor.
-    2.  By subclassing and overriding the `ode` method.
-    """
-
+    """A concrete implementation of a dynamic system."""
     def __init__(self, n_x: int, n_u: int, ode_func: Callable[[float, np.ndarray, np.ndarray], np.ndarray] = None):
-        """Initializes the dynamic system.
-
-        Args:
-            n_x: The number of states.
-            n_u: The number of controls.
-            ode_func: A function with the signature `f(t, x, u)` that
-                computes the state derivative. If None, this class must be
-                subclassed and the `ode` method must be overridden.
-        """
+        """Initializes the dynamic system."""
         super().__init__(n_x, n_u)
         if ode_func:
             self._ode_func = ode_func
         elif not hasattr(self, '_ode_func'):
-            # This check is for when a subclass is overriding the `ode` method
-            # but did not provide an `ode_func` to the constructor.
             if type(self) == DynamicSystem:
                  raise ValueError("`ode_func` must be provided if not subclassing.")
 
@@ -143,4 +93,4 @@ class DynamicSystem(DynamicSystemBase):
         """The system's ODE. Delegates to the provided `ode_func`."""
         if hasattr(self, '_ode_func'):
             return self._ode_func(t, x, u)
-        raise NotImplementedError("`ode` method must be overridden in a subclass if `ode_func` is not provided.")
+        raise NotImplementedError("`ode` method must be overridden in a subclass if `value_func` is not provided.")
