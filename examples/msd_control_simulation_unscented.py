@@ -6,8 +6,7 @@ import matplotlib.pyplot as plt
 
 from systems.linear_system import LinearSystem
 from core.anticipated_condition import AnticipatedCondition
-from core.iterated_observed_control import IteratedObservedControl
-from core.observed_control import ObservedControl
+from core.unscented_observed_control import UnscentedObservedControl
 from conditions.quadratic_cost import QuadraticCost
 
 matplotlib.use("Qt5Agg")
@@ -21,7 +20,7 @@ def main():
     # 1. Define the Dynamic System (Mass-Spring-Damper)
     # ----------------------------------------------------
     # System parameters: mass (m), spring constant (k), damping (c)
-    m, k, c = 1.0, 0.0, 0.1
+    m, k, c = 1.0, 3.0, 0.1
     A = np.array([[0.0, 1.0], [-k / m, -c / m]])
     B = np.array([[0.0], [1.0 / m]])
 
@@ -32,59 +31,48 @@ def main():
     # 2. Define the Anticipated Condition (Quadratic Cost)
     # ----------------------------------------------------
     # Define the target state [position=1, velocity=0]
-    step_time = 6
+    step_time = 0
     x_target = np.array([1.0, 0.0])
 
     # Define weighting matrices for state error (Q) and control effort (R)
-    Q = np.diag([1.0, .001])  # Penalize position error more than velocity
-    R = 0.1 * np.diag([1.0])  # Penalize control effort
+    Q = np.diag([1.0, .1])  # Penalize position error more than velocity
+    R =  np.diag([0.0])  # Penalize control effort
 
     def target(t):
-        if t > step_time:
-            return x_target, k * x_target[0]
+        if t> step_time:
+            return x_target, np.zeros(1)
         else:
             return np.zeros(2), np.zeros(1)
 
-    # anticipated_condition = QuadraticCost(target_function=target, Q=Q, R=R)
+    anticipated_condition = QuadraticCost(target_function=target, Q=Q, R=R)
 
     # autodifferentiation version
-    def quadratic_cost(t, x, u):
-        """Calculates the quadratic cost."""
-        x_t, u_target = target(t)
-        error = x - x_t
-
-        u_max = .3
-        R_mod = R * (u_max * 2 / np.pi) ** 2
-        control_cost = R_mod * np.tan(u / u_max * np.pi / 2) ** 2
-
-        factor = 10
-        # if control_cost > 1e-2:
-        #     factor = (control_cost/((u_target - u).T @ R @ (u_target - u)))
-
-        if t<step_time:
-            state_cost = (error.T @ Q @ error)
-        else:
-            state_cost = (error.T @ Q @ error)*factor
-        # control_cost = (u_target - u).T @ R @ (u_target - u)
-
-        return state_cost + control_cost
-
-    # Instantiate the cost function object
-    anticipated_condition = AnticipatedCondition(
-        n_x=n_x, n_u=n_u, value_func=quadratic_cost
-    )
+    # def quadratic_cost(t, x, u):
+    #     """Calculates the quadratic cost."""
+    #     if t > step_time:
+    #         error = x - x_target
+    #     else:
+    #         error = x
+    #     # error = x - x_target
+    #     state_cost = (error.T @ Q @ error)
+    #     control_cost = u.T @ R @ u
+    #     return state_cost + control_cost
+    #
+    # # Instantiate the cost function object
+    # anticipated_condition = AnticipatedCondition(
+    #     n_x=n_x, n_u=n_u, value_func=quadratic_cost
+    # )
 
     # 3. Configure and Instantiate the Observed Controller
     # ----------------------------------------------------
-    # oc_controller = IteratedObservedControl(
-    oc_controller = ObservedControl(
+    oc_controller = UnscentedObservedControl(
         dynamic_system=dynamic_system,
         anticipated_conditions=[(1.0, anticipated_condition)],
         expected_update_period=0.1,
-        min_horizon=50,
+        min_horizon=3,
         max_horizon=500,
-        adaptive_tolerances_trace_p=1e-5,
-        adaptive_tolerances_gamma=1e-4,
+        adaptive_tolerances_trace_p=1e-3,
+        adaptive_tolerances_gamma=1e-3,
         delta_control_penalty=1 * np.eye(n_u),
     )
 
@@ -143,8 +131,7 @@ def main():
     # Plot state trajectories
     axs[0].plot(time_history, state_history[:, 0], label="Position (x)", lw=2)
     axs[0].plot(time_history, state_history[:, 1], label="Velocity (ẋ)", lw=2)
-    y = [target(t)[0][0] for t in time_history]
-    axs[0].plot(time_history, y, color='r', linestyle='--', label="Target Position")
+    axs[0].axhline(y=x_target[0], color='r', linestyle='--', label="Target Position")
     axs[0].set_ylabel("State")
     axs[0].legend()
     axs[0].grid(True)

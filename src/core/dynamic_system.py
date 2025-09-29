@@ -11,6 +11,7 @@ import autograd.numpy as np
 from autograd import jacobian
 from scipy.integrate import solve_ivp
 
+
 class DynamicSystemBase(abc.ABC):
     """Abstract base class for dynamic systems.
 
@@ -59,7 +60,8 @@ class DynamicSystemBase(abc.ABC):
             d_phi_u_dt.flatten(),
         ])
 
-    def solve(self, t_init: float, t_final: float, x_init: np.ndarray, u: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def solve(self, t_init: float, t_final: float, x_init: np.ndarray, u: np.ndarray) -> Tuple[
+        np.ndarray, np.ndarray, np.ndarray]:
         """Solves the ODE and computes sensitivities over a time interval."""
         # Initial augmented state
         phi_x_init = np.eye(self.n_x)
@@ -71,11 +73,11 @@ class DynamicSystemBase(abc.ABC):
         ])
 
         # Solve the augmented ODE
-        sol = solve_ivp(self._augmented_ode, (t_init, t_final), aug_x_init, args=(u,),rtol=1e-6,atol=1e-9)
-        final_aug_state = sol.y[:,-1]
+        sol = solve_ivp(self._augmented_ode, (t_init, t_final), aug_x_init, args=(u,), rtol=1e-6, atol=1e-9)
+        final_aug_state = sol.y[:, -1]
         # print(sol)
         # print(final_aug_state)
-        assert(sol.success)
+        assert (sol.success)
         # Unpack the final solution
         x_final = final_aug_state[:self.n_x]
         phi_x_final = final_aug_state[self.n_x:self.n_x + self.n_x * self.n_x].reshape((self.n_x, self.n_x))
@@ -83,8 +85,20 @@ class DynamicSystemBase(abc.ABC):
 
         return x_final, phi_x_final, phi_u_final
 
+    def solve_ode(self, t_init: float, t_final: float, x_init: np.ndarray, u: np.ndarray) -> Tuple[np.ndarray]:
+        # Solve the augmented ODE
+        sol = solve_ivp(self.ode, (t_init, t_final), x_init, args=(u,), rtol=1e-6, atol=1e-9)
+        x_final = sol.y[:, -1]
+        # print(sol)
+        # print(final_aug_state)
+        assert sol.success
+
+        return x_final
+
+
 class DynamicSystem(DynamicSystemBase):
     """A concrete implementation of a dynamic system."""
+
     def __init__(self, n_x: int, n_u: int, ode_func: Callable[[float, np.ndarray, np.ndarray], np.ndarray] = None):
         """Initializes the dynamic system."""
         super().__init__(n_x, n_u)
@@ -92,7 +106,7 @@ class DynamicSystem(DynamicSystemBase):
             self._ode_func = ode_func
         elif not hasattr(self, '_ode_func'):
             if type(self) == DynamicSystem:
-                 raise ValueError("`ode_func` must be provided if not subclassing.")
+                raise ValueError("`ode_func` must be provided if not subclassing.")
 
     def ode(self, t: float, x: np.ndarray, u: np.ndarray) -> np.ndarray:
         """The system's ODE. Delegates to the provided `ode_func`."""

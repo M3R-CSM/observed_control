@@ -9,7 +9,7 @@ from matplotlib.widgets import Button
 
 # Adjust the import path to match your project structure
 from systems.cart_pole_system import CartPoleSystem
-from core.observed_control import ObservedControl
+from core.unscented_observed_control import UnscentedObservedControl
 from conditions.quadratic_cost import QuadraticCost
 
 matplotlib.use("Qt5Agg")
@@ -141,15 +141,15 @@ def main():
     # ----------------------------------------------------
     # In the original file, there was a delta_control_penalty argument that
     # is not in the ObservedControl __init__ signature. It has been removed.
-    oc_controller = ObservedControl(
+    oc_controller = UnscentedObservedControl(
         dynamic_system=dynamic_system,
         anticipated_conditions=[(1.0, anticipated_condition)],
-        expected_update_period=0.06,
-        min_horizon=10,
+        expected_update_period=0.02,
+        min_horizon=35,
         max_horizon=100,
-        adaptive_tolerances_trace_p=1e-2,
-        adaptive_tolerances_gamma=1e-2,
-        delta_control_penalty=0.1 * np.eye(n_u),
+        adaptive_tolerances_trace_p=1e-3,
+        adaptive_tolerances_gamma=1e-3,
+        delta_control_penalty=0.001 * np.eye(n_u),
     )
 
     # 4. Set up and Run the Simulation

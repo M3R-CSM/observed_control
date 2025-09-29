@@ -111,3 +111,48 @@ class LinearSystem(DynamicSystemBase):
         x_final = phi_x @ x_init + phi_u @ u
 
         return x_final, phi_x, phi_u
+
+    def solv_ode(self, t_init: float, t_final: float, x_init: np.ndarray, u: np.ndarray) -> [np.ndarray]:
+        """Solves the LTI system dynamics using the matrix exponential.
+
+        This method provides an exact analytical solution for the final state
+        and the state and control sensitivities (Phi_x, Phi_u) over the
+        time interval. It caches the discretized matrices to avoid re-computation
+        if the time step `dt` remains constant between calls.
+
+        Args:
+            t_init: The initial time.
+            t_final: The final time.
+            x_init: The initial state vector.
+            u: The control vector, assumed constant over the interval.
+
+        Returns:
+            A tuple containing:
+                - The final state vector (x_final).
+        """
+        dt = t_final - t_init
+
+        # Check if we can use the cached matrices using a tolerance-based comparison.
+        if self._last_dt is not None and np.isclose(dt, self._last_dt):
+            phi_x = self._cached_phi_x
+            phi_u = self._cached_phi_u
+        else:
+            # Create the augmented matrix [A, B; 0, 0] for discretization
+            augmented_matrix = np.block([
+                [self.A, self.B],
+                [np.zeros((self.n_u, self.n_x)), np.zeros((self.n_u, self.n_u))]
+            ])
+
+            # Compute the matrix exponential to get the discretized system matrices
+            discretized_matrix = expm(augmented_matrix * dt)
+
+            # Extract and cache the sensitivity matrices
+            phi_x = discretized_matrix[:self.n_x, :self.n_x]
+            phi_u = discretized_matrix[:self.n_x, self.n_x:]
+
+            self._last_dt = dt
+            self._cached_phi_x = phi_x
+            self._cached_phi_u = phi_u
+
+        # Calculate the final state using the discretized system
+        return  phi_x @ x_init + phi_u @ u
