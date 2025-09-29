@@ -33,9 +33,9 @@ def _update_sigma_points(mean: np.ndarray, covariance: np.ndarray, sigma_pt_shif
 
 @jit(nopython=True)
 def _compute_statistics(pts_1: list, pts_2: list, w0a: float, w0c: float, wj: float) -> [np.ndarray, np.ndarray,
-                                                                                          np.ndarray]:
+                                                                                         np.ndarray]:
     mean_1 = pts_1[0].copy()
-    mean_2 = (w0a/wj)*pts_2[0].copy()
+    mean_2 = (w0a / wj) * pts_2[0].copy()
     for i in range(1, len(pts_2)):
         mean_2 += pts_2[i]
     mean_2 *= wj
@@ -50,23 +50,6 @@ def _compute_statistics(pts_1: list, pts_2: list, w0a: float, w0c: float, wj: fl
     cross_covariance_12 *= wj
 
     return mean_2, covariance_2, cross_covariance_12
-
-
-#
-# @jit(nopython=True)
-# def _compute_statistics(pts_1: list, w0a: float, w0c: float, wjc: float) -> [np.ndarray, np.ndarray]:
-#     mean_1 = pts_1[:, 0]
-#     for i in range(1, len(pts_1)):
-#         mean_1 += pts_1[i]
-#     mean_1 *= w0a
-#
-#     covariance_1 = (w0c / wjc) * (pts_1[0] - mean_1) @ (pts_1[0] - mean_1).T
-#
-#     for i in range(1, len(pts_1)):
-#         covariance_1 += (pts_1[i] - mean_1) @ (pts_1[i] - mean_1).T
-#     covariance_1 *= wjc
-#
-#     return mean_1, covariance_1
 
 
 class UnscentedObservedControl:
@@ -155,26 +138,29 @@ class UnscentedObservedControl:
             if k > 0:
                 augmented_state, covariance_matrix, cross_covariance = self._predict_step(horizon_time, augmented_state,
                                                                                           covariance_matrix)
-                accumulator = accumulator @ cross_covariance @ np.linalg.pinv(covariance_matrix)
+                information_matrix = np.linalg.pinv(covariance_matrix)
+                accumulator = accumulator @ cross_covariance @ information_matrix
+            else:
+                information_matrix = np.linalg.pinv(covariance_matrix)
 
             # Update step
-            cov_shift =  (covariance_matrix + np.eye(self.n_chi)*np.trace(covariance_matrix)*1e-9) #covariance_matrix #
-            mean_y, cov_yy, cov_xy = self._compute_residuals_and_gains(horizon_time, augmented_state, cov_shift)
+            mean_y, cov_yy, cov_xy = self._compute_residuals_and_gains(horizon_time, augmented_state, covariance_matrix)
 
-            inv_cov_yx = np.linalg.pinv(cov_xy.T)
-            R_inv = cov_shift @ inv_cov_yx
-            H = cov_xy.T @ inv_cov_yx
+            # Robust extraction of the weighting matrix from the coss-covariance
+            u, s, vh = np.linalg.svd(information_matrix @ cov_xy)
+            s[s <= 1e-14] = 0
+            s[s > 1e-14] = s[s > 1e-14] ** -1
+            R_inv = vh.T @ np.diag(s) @ vh  # extract weighting matrix, it should be symmetric
+            s[s > 1e-14] = 1  # get observation matrix
+            H = vh.T @ np.diag(s) @ vh
+
             innovation_cov = H @ covariance_matrix @ H.T + R_inv
-            # innovation_cov = covariance_matrix + R_inv
 
-            # kalman_gain = covariance_matrix @ H.T @ np.linalg.pinv(innovation_cov)
             kalman_gain = covariance_matrix @ H.T @ np.linalg.pinv(innovation_cov)
             delta_state = -kalman_gain @ (R_inv @ mean_y)
 
             augmented_state += delta_state
-
             final_control += accumulator @ delta_state
-            # print("final_control: ", final_control)
 
             delta_cov = - kalman_gain @ innovation_cov @ kalman_gain.T
             dp = np.trace(accumulator @ delta_cov @ accumulator.T)
@@ -182,7 +168,6 @@ class UnscentedObservedControl:
             covariance_matrix += delta_cov
 
             tr_init_cov += dp
-            # print("tr_init_cov\n", tr_init_cov)
             trace_p_term_cond = dp / tr_init_cov  # if tr_init_cov > 1e-9 else 0.0
             gamma_term_cond = np.linalg.norm(accumulator @ kalman_gain, 'fro')
 
@@ -214,7 +199,7 @@ class UnscentedObservedControl:
             x_k_plus_1 = self.dynamic_system.solve_ode(t, t + self.expected_update_period, x_k.flatten(), u_k.flatten())
 
             aug_state_k_plus_1 = np.concatenate([x_k_plus_1, u_k.flatten()])
-            transformed_sigmal_points.append(aug_state_k_plus_1)
+            transformed_sigmal_points.append(np.reshape(aug_state_k_plus_1, (-1,)))
 
         mean_y, cov_yy, cov_xy = _compute_statistics(sigma_points, transformed_sigmal_points, self.weights_0a,
                                                      self.weights_0c, self.weights_j)
@@ -242,3 +227,47 @@ class UnscentedObservedControl:
 
         return _compute_statistics(sigma_points, transformed_sigmal_points, self.weights_0a, self.weights_0c,
                                    self.weights_j)
+
+    # def _compute_residuals_and_gains_extended(self, t: float, aug_state: np.ndarray) -> Tuple[
+    #     np.ndarray, np.ndarray, np.ndarray, float]:
+    #     """Computes measurement residuals and gains from anticipated conditions."""
+    #     x_k = aug_state[:self.n_x]
+    #     u_k = aug_state[self.n_x:]
+    #
+    #     total_hessian = np.zeros((self.n_chi, self.n_chi))
+    #     total_residual = np.zeros(self.n_chi)
+    #
+    #     # The cost is evaluated at the *end* of the time step
+    #     total_cost = 0.0
+    #
+    #     for magnitude, condition in self.anticipated_conditions:
+    #         cond_cost = condition.value(t, x_k, u_k)
+    #         cond_hess = condition.hessian(t, x_k, u_k)
+    #         cond_res = condition.sensitivity(t, x_k, u_k)
+    #
+    #         total_hessian += magnitude * np.reshape(cond_hess, (self.n_chi, self.n_chi))
+    #         total_residual += magnitude * np.reshape(cond_res, self.n_chi)
+    #         total_cost += magnitude * cond_cost
+    #
+    #     R_k = np.linalg.pinv(total_hessian)
+    #     H_k = R_k * total_hessian  # np.eye(self.n_chi)  # Observation model is identity
+    #     r_k = -R_k @ total_residual
+    #
+    #     return r_k, R_k, H_k, total_cost
+    #
+    # def _predict_step_extended(self, t: float, aug_state: np.ndarray, cov: np.ndarray) -> Tuple[
+    #     np.ndarray, np.ndarray, np.ndarray]:
+    #     """Propagates the augmented state and covariance forward in time."""
+    #     x_k = aug_state[:self.n_x]
+    #     u_k = aug_state[self.n_x:]
+    #
+    #     x_k_plus_1, phi_x, phi_u = self.dynamic_system.solve(
+    #         t, t + self.expected_update_period, x_k.flatten(), u_k.flatten()
+    #     )
+    #
+    #     aug_state_k_plus_1 = np.concatenate([x_k_plus_1, u_k.flatten()])
+    #     phi = np.block([[phi_x, phi_u], [np.zeros((self.n_u, self.n_x)), np.eye(self.n_u)]])
+    #     cov_k_plus_1 = phi @ cov @ phi.T
+    #     cov_k_plus_1[self.n_x:, self.n_x:] += self.process_noise
+    #
+    #     return aug_state_k_plus_1, cov_k_plus_1, cov @ phi.T, phi

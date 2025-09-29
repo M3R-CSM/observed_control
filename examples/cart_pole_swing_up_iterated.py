@@ -8,7 +8,7 @@ import numpy as np
 
 # Adjust the import path to match your project structure
 from systems.cart_pole_system import CartPoleSystem
-from core.unscented_observed_control import  UnscentedObservedControl
+from core.iterated_observed_control import IteratedObservedControl
 from conditions.quadratic_cost import QuadraticCost
 from cart_pole_plotting import *
 
@@ -42,7 +42,7 @@ def main():
     # ----------------------------------------------------
     # In the original file, there was a delta_control_penalty argument that
     # is not in the ObservedControl __init__ signature. It has been removed.
-    oc_controller = UnscentedObservedControl(
+    oc_controller = IteratedObservedControl(
         dynamic_system=dynamic_system,
         anticipated_conditions=[(1.0, anticipated_condition)],
         expected_update_period=0.05,

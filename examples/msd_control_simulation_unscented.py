@@ -20,7 +20,7 @@ def main():
     # 1. Define the Dynamic System (Mass-Spring-Damper)
     # ----------------------------------------------------
     # System parameters: mass (m), spring constant (k), damping (c)
-    m, k, c = 1.0, 3.0, 0.1
+    m, k, c = 1.0, 0.0, 0.1
     A = np.array([[0.0, 1.0], [-k / m, -c / m]])
     B = np.array([[0.0], [1.0 / m]])
 
@@ -31,12 +31,12 @@ def main():
     # 2. Define the Anticipated Condition (Quadratic Cost)
     # ----------------------------------------------------
     # Define the target state [position=1, velocity=0]
-    step_time = 0
+    step_time = 6
     x_target = np.array([1.0, 0.0])
 
     # Define weighting matrices for state error (Q) and control effort (R)
-    Q = np.diag([1.0, .1])  # Penalize position error more than velocity
-    R =  np.diag([0.0])  # Penalize control effort
+    Q = np.diag([1.0, .001])  # Penalize position error more than velocity
+    R = 0.0 * np.diag([1.0])  # Penalize control effort
 
     def target(t):
         if t> step_time:
@@ -69,10 +69,10 @@ def main():
         dynamic_system=dynamic_system,
         anticipated_conditions=[(1.0, anticipated_condition)],
         expected_update_period=0.1,
-        min_horizon=3,
-        max_horizon=500,
-        adaptive_tolerances_trace_p=1e-3,
-        adaptive_tolerances_gamma=1e-3,
+        min_horizon=10,
+        max_horizon=150,
+        adaptive_tolerances_trace_p=1e-5,
+        adaptive_tolerances_gamma=1e-4,
         delta_control_penalty=1 * np.eye(n_u),
     )
 
@@ -131,7 +131,8 @@ def main():
     # Plot state trajectories
     axs[0].plot(time_history, state_history[:, 0], label="Position (x)", lw=2)
     axs[0].plot(time_history, state_history[:, 1], label="Velocity (ẋ)", lw=2)
-    axs[0].axhline(y=x_target[0], color='r', linestyle='--', label="Target Position")
+    y = [target(t)[0][0] for t in time_history]
+    axs[0].plot(time_history, y, color='r', linestyle='--', label="Target Position")
     axs[0].set_ylabel("State")
     axs[0].legend()
     axs[0].grid(True)
