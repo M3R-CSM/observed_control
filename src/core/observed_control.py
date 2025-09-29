@@ -119,7 +119,7 @@ class ObservedControl:
             'final_trace_p': tr_init_cov,
             'trace_p_term_cond': trace_p_term_cond,
             'gamma_term_cond': gamma_term_cond,
-            'compute_time': end_time-start_time
+            'compute_time': end_time - start_time
         }
         return final_control, diagnostics
 
@@ -157,8 +157,8 @@ class ObservedControl:
             cond_hess = condition.hessian(t, x_k, u_k)
             cond_res = condition.sensitivity(t, x_k, u_k)
 
-            total_hessian += magnitude * np.reshape(cond_hess, (self.n_chi,self.n_chi))
-            total_residual += magnitude * np.reshape(cond_res, (-1,))
+            total_hessian += magnitude * np.reshape(cond_hess, (self.n_chi, self.n_chi))
+            total_residual += magnitude * np.reshape(cond_res, self.n_chi)
             total_cost += magnitude * cond_cost
 
         R_k = np.linalg.pinv(total_hessian)
