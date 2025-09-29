@@ -7,55 +7,15 @@
 from typing import List, Tuple
 
 import numpy as np
-from numba import jit
 import time
 from core.dynamic_system import DynamicSystemBase
 from core.anticipated_condition import AnticipatedConditionBase
 
 
-@jit(nopython=True)
-def _update_sigma_points(mean: np.ndarray, covariance: np.ndarray, sigma_pt_shift: float) -> list():
-    try:
-        l = np.linalg.cholesky(covariance)
-    except Exception:
-        u, s, _ = np.linalg.svd(covariance)
-        s[s < 1e-14] = 0
-        l = u * np.sqrt(s)
-
-    sigma_points = list()
-    sigma_points.append(mean)
-    for i in range(mean.shape[0]):
-        sigma_points.append(mean + sigma_pt_shift * l[:, i].flatten())
-        sigma_points.append(mean - sigma_pt_shift * l[:, i].flatten())
-
-    return sigma_points
-
-
-@jit(nopython=True)
-def _compute_statistics(pts_1: list, pts_2: list, w0a: float, w0c: float, wj: float) -> [np.ndarray, np.ndarray,
-                                                                                         np.ndarray]:
-    mean_1 = pts_1[0].copy()
-    mean_2 = (w0a / wj) * pts_2[0].copy()
-    for i in range(1, len(pts_2)):
-        mean_2 += pts_2[i]
-    mean_2 *= wj
-
-    covariance_2 = (w0c / wj) * np.reshape(pts_2[0] - mean_2, (-1, 1)) @ np.reshape(pts_2[0] - mean_2, (1, -1))
-    cross_covariance_12 = (w0c / wj) * np.reshape(pts_1[0] - mean_1, (-1, 1)) @ np.reshape(pts_2[0] - mean_2, (1, -1))
-
-    for i in range(1, len(pts_1)):
-        covariance_2 += np.reshape(pts_2[i] - mean_2, (-1, 1)) @ np.reshape(pts_2[i] - mean_2, (1, -1))
-        cross_covariance_12 += np.reshape(pts_1[i] - mean_1, (-1, 1)) @ np.reshape(pts_2[i] - mean_2, (1, -1))
-    covariance_2 *= wj
-    cross_covariance_12 *= wj
-
-    return mean_2, covariance_2, cross_covariance_12
-
-
 class UnscentedObservedControl:
-    """Implements the Observed Control algorithm for NMPC.
+    """Implements the Observed Control algorithm for NMPC with an unscented backend.
 
-    This class is based on Algorithm 3 (Efficient Observed Control) from the
+    This class is based on Algorithm 2 (Forward-Only Observed Control) from the
     paper "Linearly Scalable Nonlinear Model Predictive Control with
     Adaptive Horizons".
     """
@@ -190,7 +150,7 @@ class UnscentedObservedControl:
     def _predict_step(self, t: float, aug_state: np.ndarray, cov_matrix: np.ndarray) -> Tuple[
         np.ndarray, np.ndarray, np.ndarray]:
         """Propagates the augmented state and covariance forward in time."""
-        sigma_points = _update_sigma_points(aug_state, cov_matrix, self.sigma_pt_shift)
+        sigma_points = self._update_sigma_points(aug_state, cov_matrix, self.sigma_pt_shift)
         transformed_sigmal_points = list()
         for sig_pt in sigma_points:
             x_k = sig_pt[:self.n_x]
@@ -201,7 +161,7 @@ class UnscentedObservedControl:
             aug_state_k_plus_1 = np.concatenate([x_k_plus_1, u_k.flatten()])
             transformed_sigmal_points.append(np.reshape(aug_state_k_plus_1, (-1,)))
 
-        mean_y, cov_yy, cov_xy = _compute_statistics(sigma_points, transformed_sigmal_points, self.weights_0a,
+        mean_y, cov_yy, cov_xy = self._compute_statistics(sigma_points, transformed_sigmal_points, self.weights_0a,
                                                      self.weights_0c, self.weights_j)
         cov_yy[self.n_x:, self.n_x:] += self.process_noise
 
@@ -211,7 +171,7 @@ class UnscentedObservedControl:
         np.ndarray, np.ndarray, np.ndarray, float]:
         """Computes measurement residuals and gains from anticipated conditions."""
         transformed_sigmal_points = list()
-        sigma_points = _update_sigma_points(aug_state, cov_matrix, self.sigma_pt_shift)
+        sigma_points = self._update_sigma_points(aug_state, cov_matrix, self.sigma_pt_shift)
         for sig_pt in sigma_points:
 
             x_k = sig_pt[:self.n_x]
@@ -225,49 +185,42 @@ class UnscentedObservedControl:
 
             transformed_sigmal_points.append(total_residual)
 
-        return _compute_statistics(sigma_points, transformed_sigmal_points, self.weights_0a, self.weights_0c,
+        return self._compute_statistics(sigma_points, transformed_sigmal_points, self.weights_0a, self.weights_0c,
                                    self.weights_j)
 
-    # def _compute_residuals_and_gains_extended(self, t: float, aug_state: np.ndarray) -> Tuple[
-    #     np.ndarray, np.ndarray, np.ndarray, float]:
-    #     """Computes measurement residuals and gains from anticipated conditions."""
-    #     x_k = aug_state[:self.n_x]
-    #     u_k = aug_state[self.n_x:]
-    #
-    #     total_hessian = np.zeros((self.n_chi, self.n_chi))
-    #     total_residual = np.zeros(self.n_chi)
-    #
-    #     # The cost is evaluated at the *end* of the time step
-    #     total_cost = 0.0
-    #
-    #     for magnitude, condition in self.anticipated_conditions:
-    #         cond_cost = condition.value(t, x_k, u_k)
-    #         cond_hess = condition.hessian(t, x_k, u_k)
-    #         cond_res = condition.sensitivity(t, x_k, u_k)
-    #
-    #         total_hessian += magnitude * np.reshape(cond_hess, (self.n_chi, self.n_chi))
-    #         total_residual += magnitude * np.reshape(cond_res, self.n_chi)
-    #         total_cost += magnitude * cond_cost
-    #
-    #     R_k = np.linalg.pinv(total_hessian)
-    #     H_k = R_k * total_hessian  # np.eye(self.n_chi)  # Observation model is identity
-    #     r_k = -R_k @ total_residual
-    #
-    #     return r_k, R_k, H_k, total_cost
-    #
-    # def _predict_step_extended(self, t: float, aug_state: np.ndarray, cov: np.ndarray) -> Tuple[
-    #     np.ndarray, np.ndarray, np.ndarray]:
-    #     """Propagates the augmented state and covariance forward in time."""
-    #     x_k = aug_state[:self.n_x]
-    #     u_k = aug_state[self.n_x:]
-    #
-    #     x_k_plus_1, phi_x, phi_u = self.dynamic_system.solve(
-    #         t, t + self.expected_update_period, x_k.flatten(), u_k.flatten()
-    #     )
-    #
-    #     aug_state_k_plus_1 = np.concatenate([x_k_plus_1, u_k.flatten()])
-    #     phi = np.block([[phi_x, phi_u], [np.zeros((self.n_u, self.n_x)), np.eye(self.n_u)]])
-    #     cov_k_plus_1 = phi @ cov @ phi.T
-    #     cov_k_plus_1[self.n_x:, self.n_x:] += self.process_noise
-    #
-    #     return aug_state_k_plus_1, cov_k_plus_1, cov @ phi.T, phi
+    def _update_sigma_points(self, mean: np.ndarray, covariance: np.ndarray, sigma_pt_shift: float) -> list():
+        try:
+            l = np.linalg.cholesky(covariance)
+        except Exception:
+            u, s, _ = np.linalg.svd(covariance)
+            s[s < 1e-14] = 0
+            l = u * np.sqrt(s)
+
+        sigma_points = list()
+        sigma_points.append(mean)
+        for i in range(mean.shape[0]):
+            sigma_points.append(mean + sigma_pt_shift * l[:, i].flatten())
+            sigma_points.append(mean - sigma_pt_shift * l[:, i].flatten())
+
+        return sigma_points
+
+    def _compute_statistics(self, pts_1: list, pts_2: list, w0a: float, w0c: float, wj: float) -> [np.ndarray,
+                                                                                                   np.ndarray,
+                                                                                                   np.ndarray]:
+        mean_1 = pts_1[0].copy()
+        mean_2 = (w0a / wj) * pts_2[0].copy()
+        for i in range(1, len(pts_2)):
+            mean_2 += pts_2[i]
+        mean_2 *= wj
+
+        covariance_2 = (w0c / wj) * np.reshape(pts_2[0] - mean_2, (-1, 1)) @ np.reshape(pts_2[0] - mean_2, (1, -1))
+        cross_covariance_12 = (w0c / wj) * np.reshape(pts_1[0] - mean_1, (-1, 1)) @ np.reshape(pts_2[0] - mean_2,
+                                                                                               (1, -1))
+
+        for i in range(1, len(pts_1)):
+            covariance_2 += np.reshape(pts_2[i] - mean_2, (-1, 1)) @ np.reshape(pts_2[i] - mean_2, (1, -1))
+            cross_covariance_12 += np.reshape(pts_1[i] - mean_1, (-1, 1)) @ np.reshape(pts_2[i] - mean_2, (1, -1))
+        covariance_2 *= wj
+        cross_covariance_12 *= wj
+
+        return mean_2, covariance_2, cross_covariance_12
